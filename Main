@@ -1,0 +1,23 @@
+#include <phys253.h>          
+#include <LiquidCrystal.h>  
+
+void setup() {
+    #include <phys253setup.txt>
+    Serial.begin(9600);  
+    //menu code
+      -includes left or right - already in owen's code
+}
+
+void loop() {
+  //tape follow
+  //stop at IR gate - need to test on actual circuit to calibrate (distance from gate)
+  //tape follow
+  //start circling around
+  //stop at notch
+  //pick up agent
+  //repeat for all notches
+  //follow edge
+  //stop when sense collision
+  //raise arm - and zipline down
+
+}
