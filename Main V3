@@ -1,0 +1,493 @@
+#include <phys253.h>          
+#include <LiquidCrystal.h>  
+#include <avr/eeprom.h>
+
+//Set TINAH Pins
+
+//Analog - assuming a multiplexer will not be used
+//Main Tape Following QRDs
+int l_sensor = 0;
+int r_sensor = 1;
+//Notch Detector QRDs
+int l_notchsensor = 2;
+int r_notchsensor = 3;
+//Inner Edge Detector QRDs
+int l_innersensor = 4;
+int r_innersensor = 5;
+//Outer Edge Detector QRDs
+int l_outersensor = 6;
+int r_outersensor = 7;
+
+//Digital
+//Peak detector
+int peak_sensor = 0;
+//Collision detector
+int collision_sensor = 1;
+
+//Motors
+//wheel motors
+int r_motor = 0;
+int l_motor = 1;
+//Lazy Susan Motor
+int lazysusan = 2;
+
+//Servos
+//Claw positioning servo
+int claw_position = 0;
+//Claw open/close servo
+int claw_open = 1;
+//Zipline servo
+int zipline_rotation = 2;
+
+
+//This class allows constants to be saved between power offs
+class MenuItem {  
+public:
+  MenuItem(String name)
+  {
+    MenuItemCount++;
+    EEPROMAddress = (uint16_t*)(2 * MenuItemCount);
+    Name      = name;
+    Value         = eeprom_read_word(EEPROMAddress);
+  }
+
+  String getName() {
+    return Name;
+  }
+  
+  float getValue() {
+    return (float) Value;
+  }
+  
+  void Save()
+  {
+    eeprom_write_word(EEPROMAddress, Value);
+  }
+private:
+  String    Name;
+  uint16_t  Value;
+  uint16_t* EEPROMAddress;
+  static uint16_t MenuItemCount;
+};
+
+uint16_t MenuItem::MenuItemCount = 0;
+/* Add the menu items here */                         // Current Values:
+MenuItem Speed            = MenuItem("Speed");        // 544
+MenuItem ProportionalGain = MenuItem("P-gain");       // 333
+MenuItem DerivativeGain   = MenuItem("D-gain");       // 0
+MenuItem IntegralGain     = MenuItem("I-gain");       // 167
+MenuItem LeftThreshold    = MenuItem("L-Threshold");  // 30
+MenuItem RightThreshold   = MenuItem("R-Threshold");  // 23
+MenuItem LeftNotchThreshold = MenuItem("L-Notch-Threshold");  // ?
+MenuItem RightNotchThreshold = MenuItem("R-Notch-Threshold");  // ?
+MenuItem LeftInnerEdgeThreshold = MenuItem("L-IEdge-Threshold");  // ?
+MenuItem RightInnerEdgeThreshold = MenuItem("R-IEdge-Threshold");  // ?
+MenuItem LeftOuterEdgeThreshold = MenuItem("L-OEdge-Threshold");  // ?
+MenuItem RightOuterEdgeThreshold = MenuItem("R-OEdge-Threshold");  // ?
+MenuItem RightTrack = MenuItem("TrackType");  // 0 for right, 1 for left
+
+
+MenuItem menuItems[]      = {Speed, ProportionalGain, IntegralGain, DerivativeGain, LeftThreshold, RightThreshold, LeftNotchThreshold, RightNotchThreshold, LeftInnerEdgeThreshold, RightInnerEdgeThreshold, LeftOuterEdgeThreshold, RightOuterEdgeThreshold, RightTrack};
+
+void setup() {
+    #include <phys253setup.txt>
+    Serial.begin(9600); 
+    while(true) {
+      LCD.clear();
+      LCD.home(); 
+      LCD.print("Press start to open menu");
+      LCD.setCursor(0, 1);
+      LCD.print("Press stop to run");
+      delay(100);
+
+      if (startbutton()) {
+        delay(100);
+        if (startbutton()) {
+          Menu();
+        }
+      }
+
+      else if (stopbutton()) {
+        delay(100);
+        if (stopbutton()) {
+          break;
+       }
+      }
+    }
+    /**
+    * This is our home screen
+    * 
+    * Press start to set constants
+    * Press stop to run the robot
+    */
+
+}
+
+void loop() {
+
+  //save left or right track
+  float orientation = RightTrack.getValue();
+  boolean rightTrack = false;
+  if (orientation <= 2) {
+    rightTrack = true;
+  }
+  
+    //tape follow
+  boolean atGate = false;
+  int freqStatus; //1 = 1khz, 10 = 10khz, 0 for signal not strong enough - 10 = good to go
+  int switchTime = 0;
+  int intervalTime = 0;
+  int timeReq = 3000; //time required for the robot to pass through the gate in milliseconds
+
+  //The robot is moving towards the gate
+  while (!atGate) {
+    Run();
+    atGate = GateOrNah();
+    if(freqStatus != freqFun() && freqFun() != 0) {
+      switchTime = millis();
+      freqStatus = freqFun();    
+    }
+    else {
+      intervalTime = millis() - switchTime;
+    } 
+  }
+//the robot is stopped at the gate for the duration of this while loop
+  while(5000 - intervalTime < timeReq || freqStatus != 10){
+      if(freqStatus != freqFun() && freqFun() != 0) {
+      switchTime = millis();
+      freqStatus = freqFun();    
+    }
+    else {
+      intervalTime = millis() - switchTime;
+    }   
+  }
+//The robot is good to go
+  while(!NotchFind){
+    Run(); 
+  }
+  int i;
+//At this point, the robot finds the fork in the road (circle)
+  if(rightTrack){ //initially turns right in the circle
+    TurnRight();    
+    for(i=0;, i>6; i++) {
+      while(!NotchFind){
+        Run();
+      }
+      SnatchAgentR();
+    }
+    i = 0;
+    //go towards the notch nearest to the edge
+    while(i<2){
+      Run();
+      if(FindNotch() {
+        i++;
+      }
+    }
+    //go towards the edge - turns right
+    int currentTime = millis();
+    while(millis < currentTime + 100) { //change this number, don't know the optimum amount of time it should be turning
+      motor.speed(r_motor, velocity);
+    }
+    boolean atEdge = false;
+    //go straight until outer edge detector detects edge
+     while(!atEdge){
+      Run();
+      if(analogRead(r_outersensor) < RightOuterEdgeThreshold.getValue()){
+        atEdge = true;
+      }
+    }  
+    //straighten robot
+    currentTime = millis();
+    while(millis < currentTime + 100) { //change this number, don't know the optimum amount of time it should be turning
+      motor.speed(l_motor, velocity);
+    }
+    //go straight until hitting the zipline
+    //if the inner sensor goes off, turn robot slightly
+    boolean collide = false;
+    while(!collide) {
+      run();
+      collide = CheckCollide();
+      while(analogRead(r_innersensor) < RightInnerEdgeThreshold.getValue() && !collide) {
+        motor.speed(r_motor, velocity);
+        collide = CheckCollide();
+      }
+    }
+  }
+  else {
+    TurnLeft();
+    for(i=0;, i>6; i++) {
+      while(!NotchFind){
+        Run();
+      }
+      SnatchAgentL();
+    }    
+    i = 0;
+    //go towards the notch nearest to the edge 
+    while(i<2){
+      Run();
+      if(FindNotch() {
+        i++;
+      }
+    }
+    //go towards the edge  - turns left
+    int currentTime = millis();
+    while(millis < currentTime + 100) { //change this number, don't know the optimum amount of time it should be turning
+      motor.speed(r_motor, velocity);
+    }
+    boolean atEdge = false;
+    //go straight until outer edge detector detects edge
+    while(!atEdge){
+      Run();
+      if(analogRead(l_outersensor) < LeftOuterEdgeThreshold.getValue()){
+        atEdge = true;
+      }
+    }
+    //straighten robot
+    currentTime = millis();
+    while(millis < currentTime + 100) { //change this number, don't know the optimum amount of time it should be turning
+      motor.speed(r_motor, velocity);
+    }
+    //go straight until hitting the zipline
+    //if the inner sensor goes off, turn robot slightly
+    boolean collide = false;
+    while(!collide) {
+      run();
+      collide = CheckCollide();
+      while(analogRead(l_innersensor) < LeftInnerEdgeThreshold.getValue() && !collide) {
+        motor.speed(r_motor, velocity);
+        collide = CheckCollide();
+      }
+    } 
+  }
+  MountZipline();
+ }
+  
+
+  
+  //stop at IR gate - need to test on actual circuit to calibrate (distance from gate)
+  //tape follow
+  //start circling around
+  //stop at notch
+  //pick up agent
+  //repeat for all notches
+  //follow edge
+  //stop when sense collision
+  //raise arm - and zipline down
+
+}
+void MountZipline(){
+  //code to mount zipline
+}
+void CollideCheck() {
+  boolean collide = false;
+  if(digitalRead(collision_sensor) == HIGH) collide = true;
+  return collide;
+}
+void SnatchAgentR(){
+  //rotate lazy susan 90 degrees to the left
+  //Claw action
+  //Put in bucket
+}
+void SnatchAgentL(){
+  //rotate lazy susan 90 degrees to the right
+  //Claw action
+  //Put in bucket
+}
+void TurnRight(){
+  //I don't have a good algorithm yet, doing it based on time
+    int index = millis();
+    while(millis() < index + 100) {
+    motor.speed(l_motor, velocity);
+    motor.speed(r_motor, velocity * -1);
+    }
+    int error = 1;
+    while(error != 0) {
+    motor.speed(l_motor, velocity);
+    motor.speed(r_motor, velocity * -1);      
+    if ((left > lThresh) && (right > rThresh)) error = 0;   
+    }   
+}
+
+void TurnLeft(){
+  //I don't have a good algorithm yet, doing it based on time
+    int index = millis();
+    while(millis() < index + 100) {
+    motor.speed(l_motor, velocity * -1);
+    motor.speed(r_motor, velocity);
+    }
+    int error = 1;
+    while(error != 0) {
+    motor.speed(l_motor, velocity * -1);
+    motor.speed(r_motor, velocity);      
+    if ((left > lThresh) && (right > rThresh)) error = 0;   
+    }   
+}
+
+
+//This function determines whether the robot is at the gate
+boolean GateOrNah() { 
+  //figure out whether we will use a multiplexer or not
+  boolean atGate = false;
+  //code to figure out if at gate
+  return atGate;
+}
+
+//This function determines the frequency of the IR beacon
+int freqFun() {
+  //write code 
+  int frequency = 0;
+  return frequency;
+}
+
+//This function determines whether the robot is at a notch
+boolean NotchFind() {
+  float left = analogRead(l_notchsensor);
+  float right = analogRead(r_notchsensor);
+  boolean notch = false
+
+  if (left <= LeftNotchThreshold && right <= RightNotchThreshold) {
+    notch = true;
+  }
+  return notch;
+}
+
+
+void Run() {
+  int error = 0;
+  int lastErr = 0;
+  int recentErr = 0;
+
+  float maxi = 7.0;       //maximum integral control (not sure what this should actually be set to)
+  
+  float proportional = 0.0;
+  float differential = 0.0;
+  float integral = 0.0;
+  
+  float kp = ProportionalGain.getValue();
+  float kd = DerivativeGain.getValue();
+  float ki = IntegralGain.getValue();
+  float velocity = Speed.getValue();
+  float rThresh = RightThreshold.getValue();
+  float lThresh = LeftThreshold.getValue();
+  float con = 0;
+
+  int displayCount = 0;
+  
+  int q = 0; //counters for determing the apparent derivative of the step function
+  int m = 0;
+  
+  float left = analogRead(l_sensor);
+  float right = analogRead(r_sensor);
+    
+  if ((left > lThresh) && (right > rThresh)) error = 0;
+  if ((left > lThresh) && (right < rThresh)) error = -1;
+  if ((left < lThresh) && (right > rThresh)) error = +1;
+    
+  if ((left < lThresh)&&(right < rThresh)) {
+    if (lastErr > 0) error = 5;
+    if (lastErr <= 0) error = -5;
+  }
+    
+  if (!(error == lastErr)) {
+    recentErr = lastErr;
+    q = m;
+    m = 1;
+  } 
+
+  /* Get the constants based on our tuning and error */
+  proportional = kp * error;
+  differential = (int)(kd * (float)(error - recentErr)/(float)(q + m));
+  integral = ki * error + integral;
+
+  /* Limit the amount of integral control */
+  if (integral > maxi) integral = maxi;
+  if (integral < -maxi) integral = -maxi;
+    
+  con = proportional + differential + integral;
+
+  if (displayCount == 50) {       //display the error every half second
+    LCD.clear();
+    LCD.print(error);
+    displayCount = 0;
+  }
+  displayCount += 1;
+  m += 1;
+    
+  motor.speed(r_motor, velocity - con);
+  motor.speed(l_motor, velocity + con);
+    
+  lastErr = error;
+
+  //I made some modifications on the run function - it doesn't loop, it doesn't stop after pressing start button
+ 
+}
+
+void Menu() {
+  LCD.clear(); LCD.home();
+  LCD.print("Entering menu");
+  delay(500);
+
+  while (true) {
+    /* Show MenuItem value and knob value */
+    int menuIndex = knob(6) * (MenuItem::MenuItemCount) / 1024;
+    LCD.clear(); LCD.home();
+    LCD.print(menuItems[menuIndex].getName); LCD.print(" "); LCD.print(menuItems[menuIndex].getValue);
+    LCD.setCursor(0, 1);
+    LCD.print("Set to "); LCD.print(knob(7)); LCD.print("?");
+    
+    if (menuItems[menuIndex].getName.equals("L-Threshold")) {
+      LCD.print(" "); LCD.print(analogRead(l_sensor));
+    }
+
+    else if (menuItems[menuIndex].getName.equals("R-Threshold")) {
+      LCD.print(" "); LCD.print(analogRead(r_sensor));
+    }
+
+    else if (menuItems[menuIndex].getName.equals("L-Notch-Threshold")) {
+      LCD.print(" "); LCD.print(analogRead(l_notchsensor));
+    }
+
+    else if (menuItems[menuIndex].getName.equals("R-Notch-Threshold")) {
+      LCD.print(" "); LCD.print(analogRead(r_notchsensor));
+    }
+    else if (menuItems[menuIndex].getName.equals("L-IEdge-Threshold")) {
+      LCD.print(" "); LCD.print(analogRead(l_innersensor));
+    }
+    else if (menuItems[menuIndex].getName.equals("R-IEdge-Threshold")) {
+      LCD.print(" "); LCD.print(analogRead(r_innersensor));
+    }
+    else if (menuItems[menuIndex].getName.equals("L-OEdge-Threshold")) {
+      LCD.print(" "); LCD.print(analogRead(l_outersensor));
+    }
+    else if (menuItems[menuIndex].getName.equals("R-OEdge-Threshold")) {
+      LCD.print(" "); LCD.print(analogRead(r_outersensor));
+    }
+
+    else if (menuItems[menuIndex].getName.equals("TrackType")) {
+      LCD.print("R<2, L>2");
+    }
+    
+    delay(100);
+
+    /* Press start button to save the new value */
+    if (startbutton()) {
+      delay(100);
+      if (startbutton()) {
+        menuItems[menuIndex].getValue = knob(7);
+        menuItems[menuIndex].Save();
+        delay(250);
+      }
+    }
+
+    /* Press stop button to exit menu */
+    if (stopbutton()) {
+      delay(100);
+      if (stopbutton()) {
+        LCD.clear(); LCD.home();
+        LCD.print("Leaving menu");
+        delay(500);
+        return;
+      }
+    }
+  }
+}
